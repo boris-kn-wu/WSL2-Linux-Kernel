@@ -39,6 +39,7 @@
  *
  */
 
+#include <linux/time.h>
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/uio.h>
@@ -97,6 +98,7 @@ struct raw_sock {
 	struct can_filter *filter; /* pointer to filter(s) */
 	can_err_mask_t err_mask;
 	struct uniqframe __percpu *uniq;
+	struct timespec64 user_tx_timestamp;
 };
 
 static LIST_HEAD(raw_notifier_list);
@@ -708,6 +710,17 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 
 		break;
 
+	case CAN_RAW_TX_TIMESTAMP:
+		/* Check if optlen is correct */
+		if (optlen != sizeof(ro->user_tx_timestamp))
+			return -EINVAL;
+
+		/* Copy the user-provided timestamp into the raw_sock field */
+		if (copy_from_sockptr(&ro->user_tx_timestamp, optval, optlen))
+			return -EFAULT;
+
+		break;
+
 	default:
 		return -ENOPROTOOPT;
 	}
@@ -793,6 +806,12 @@ static int raw_getsockopt(struct socket *sock, int level, int optname,
 		val = &ro->join_filters;
 		break;
 
+	case CAN_RAW_TX_TIMESTAMP:
+		if (len > sizeof(int))
+			len = sizeof(int);
+		val = &ro->user_tx_timestamp;
+		break;
+
 	default:
 		return -ENOPROTOOPT;
 	}
@@ -875,6 +894,27 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 
 	sockcm_init(&sockc, sk);
 	if (msg->msg_controllen) {
+		if (ro->user_tx_timestamp.tv_sec || ro->user_tx_timestamp.tv_nsec) {
+			struct cmsghdr *cmsg;
+			for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
+				if (cmsg->cmsg_level == SOL_CAN_RAW &&
+					cmsg->cmsg_type  == CAN_RAW_TX_TIMESTAMP) {
+					
+					if (cmsg->cmsg_len < CMSG_LEN(sizeof(struct timespec64)))
+						return -EINVAL;
+					
+					/* Read the timestamp provided by the user. */
+					memcpy(&ro->user_tx_timestamp, CMSG_DATA(cmsg), sizeof(struct timespec64));
+					skb->tstamp = timespec64_to_ktime(ro->user_tx_timestamp);
+					break;
+				}
+			}
+			/* Reset user_tx_timestamp */
+			memset(&ro->user_tx_timestamp, 0, sizeof(struct timespec64));
+    	}
+		else {
+			skb->tstamp = sockc.transmit_time;
+		}
 		err = sock_cmsg_send(sk, msg, &sockc);
 		if (unlikely(err))
 			goto free_skb;
@@ -883,7 +923,6 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	skb->dev = dev;
 	skb->priority = sk->sk_priority;
 	skb->mark = READ_ONCE(sk->sk_mark);
-	skb->tstamp = sockc.transmit_time;
 
 	skb_setup_tx_timestamp(skb, sockc.tsflags);
 
