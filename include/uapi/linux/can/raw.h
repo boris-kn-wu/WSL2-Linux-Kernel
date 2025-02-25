@@ -65,6 +65,7 @@ enum {
 	CAN_RAW_FD_FRAMES,	/* allow CAN FD frames (default:off) */
 	CAN_RAW_JOIN_FILTERS,	/* all filters must match to trigger */
 	CAN_RAW_XL_FRAMES,	/* allow CAN XL frames (default:off) */
+	CAN_RAW_TX_TIMESTAMP = 0x101,	/* set timestamp for tx CAN frames */
 };
 
 #endif /* !_UAPI_CAN_RAW_H */
