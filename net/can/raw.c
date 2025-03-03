@@ -540,6 +540,8 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 	int count = 0;
 	int err = 0;
 
+	printk(KERN_INFO "raw_setsockopt level: %d, optname: %d\n", level, optname);
+
 	if (level != SOL_CAN_RAW)
 		return -EINVAL;
 
@@ -719,6 +721,7 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 		if (copy_from_sockptr(&ro->user_tx_timestamp, optval, optlen))
 			return -EFAULT;
 
+		printk(KERN_INFO "raw_setsockopt tv_sec: %d, tv_nsec: %d\n", ro->user_tx_timestamp.tv_sec, ro->user_tx_timestamp.tv_nsec);
 		break;
 
 	default:
@@ -894,27 +897,6 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 
 	sockcm_init(&sockc, sk);
 	if (msg->msg_controllen) {
-		if (ro->user_tx_timestamp.tv_sec || ro->user_tx_timestamp.tv_nsec) {
-			struct cmsghdr *cmsg;
-			for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-				if (cmsg->cmsg_level == SOL_CAN_RAW &&
-					cmsg->cmsg_type  == CAN_RAW_TX_TIMESTAMP) {
-					
-					if (cmsg->cmsg_len < CMSG_LEN(sizeof(struct timespec64)))
-						return -EINVAL;
-					
-					/* Read the timestamp provided by the user. */
-					memcpy(&ro->user_tx_timestamp, CMSG_DATA(cmsg), sizeof(struct timespec64));
-					skb->tstamp = timespec64_to_ktime(ro->user_tx_timestamp);
-					break;
-				}
-			}
-			/* Reset user_tx_timestamp */
-			memset(&ro->user_tx_timestamp, 0, sizeof(struct timespec64));
-    	}
-		else {
-			skb->tstamp = sockc.transmit_time;
-		}
 		err = sock_cmsg_send(sk, msg, &sockc);
 		if (unlikely(err))
 			goto free_skb;
@@ -923,6 +905,18 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	skb->dev = dev;
 	skb->priority = sk->sk_priority;
 	skb->mark = READ_ONCE(sk->sk_mark);
+
+	printk(KERN_INFO "+raw_sendmsg user_tx_timestamp.tv_sec: %d, user_tx_timestamp.tv_nsec: %d\n", ro->user_tx_timestamp.tv_sec, ro->user_tx_timestamp.tv_nsec);
+	if (ro->user_tx_timestamp.tv_sec || ro->user_tx_timestamp.tv_nsec) {
+		skb->tstamp = timespec64_to_ktime(ro->user_tx_timestamp);
+		printk(KERN_INFO "raw_sendmsg skb->tstamp: %ld\n", skb->tstamp);
+		/* Reset user_tx_timestamp */
+		memset(&ro->user_tx_timestamp, 0, sizeof(struct timespec64));
+		printk(KERN_INFO "-raw_sendmsg user_tx_timestamp.tv_sec: %d, user_tx_timestamp.tv_nsec: %d\n", ro->user_tx_timestamp.tv_sec, ro->user_tx_timestamp.tv_nsec);
+	}
+	else {
+		skb->tstamp = sockc.transmit_time;
+	}
 
 	skb_setup_tx_timestamp(skb, sockc.tsflags);
 
