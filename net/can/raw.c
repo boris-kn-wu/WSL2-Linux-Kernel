@@ -906,7 +906,7 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	skb->priority = sk->sk_priority;
 	skb->mark = READ_ONCE(sk->sk_mark);
 
-	printk(KERN_INFO "+raw_sendmsg user_tx_timestamp.tv_sec: %d, user_tx_timestamp.tv_nsec: %d\n", ro->user_tx_timestamp.tv_sec, ro->user_tx_timestamp.tv_nsec);
+	// printk(KERN_INFO "+raw_sendmsg user_tx_timestamp.tv_sec: %d, user_tx_timestamp.tv_nsec: %d\n", ro->user_tx_timestamp.tv_sec, ro->user_tx_timestamp.tv_nsec);
 	if (ro->user_tx_timestamp.tv_sec || ro->user_tx_timestamp.tv_nsec) {
 		skb->tstamp = timespec64_to_ktime(ro->user_tx_timestamp);
 		printk(KERN_INFO "raw_sendmsg skb->tstamp: %ld\n", skb->tstamp);
